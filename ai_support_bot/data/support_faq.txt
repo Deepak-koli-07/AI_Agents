@@ -1,0 +1,1 @@
+For login issues, customers can use the "Forgot password" link on the login page. A reset email will be sent if the email address exists in our system. If customers do not receive the email, they should check spam and contact support.

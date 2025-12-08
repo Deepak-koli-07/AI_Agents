@@ -1,0 +1,1 @@
+Orders can be cancelled only before they are shipped. Once an order is shipped, it cannot be cancelled, but you may request a return after delivery according to our refund policy.

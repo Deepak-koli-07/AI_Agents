@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Virtual envs
+venv/
+.venv/
+
+# Secrets
+.env
+
+# Runtime storage (optional)
+ai_support_bot/storage/memory.json
+ai_support_bot/storage/tickets.json

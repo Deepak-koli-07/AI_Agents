@@ -1,0 +1,9 @@
+gradio==6.0.2
+litellm==1.48.4
+sentence-transformers==3.0.1
+faiss-cpu 
+chromadb   
+python-dotenv      
+numpy
+pandas             
+

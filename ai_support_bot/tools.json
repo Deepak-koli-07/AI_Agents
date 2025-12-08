@@ -1,0 +1,27 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "create_support_ticket",
+      "description": "Creates a customer support ticket using order id and issue summary.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "description": "Order ID extracted from user message"
+          },
+          "issue_type": {
+            "type": "string",
+            "description": "Refund, Payment, Delivery, Cancellation, Login issue etc."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Short issue summary for support team"
+          }
+        },
+        "required": ["order_id", "issue_type", "summary"]
+      }
+    }
+  }
+]
