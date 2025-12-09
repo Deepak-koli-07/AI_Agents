@@ -1,111 +1,197 @@
-from pathlib import Path
+"""
+rag_utils.py
+
+RAG over:
+- Policy documents in ./data (refund, shipping, cancellation, FAQ)
+- Conversation memory stored in ChromaDB (via memory_store)
+
+Uses Groq via LiteLLM. Make sure GROQ_API_KEY and MODEL_NAME
+are set as environment variables (MODEL_NAME is optional).
+"""
+
+from __future__ import annotations
+
 import os
+from pathlib import Path
+from typing import List, Dict, Any
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import litellm
 
+from memory_store import search_memory
 
-from dotenv import load_dotenv
-load_dotenv()
+# ==========================
+# Config / Paths
+# ==========================
 
-GROQ_KEY = os.getenv("GROQ_API_KEY")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+SYSTEM_PROMPT_PATH = BASE_DIR / "system_prompt.txt"
+
+EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
 MODEL_NAME = os.getenv("MODEL_NAME", "groq/llama-3.1-70b-versatile")
 
-litellm.api_key = GROQ_KEY
+# LiteLLM will pick up GROQ_API_KEY from env
+# e.g. GROQ_API_KEY = gsk_xxx in HF Secrets or .env
 
-DATA_DIR = Path("data")
-SYSTEM_PROMPT_PATH = Path("system_prompt.txt")
+# ==========================
+# Load policy docs + embed them once
+# ==========================
 
+_embedder = SentenceTransformer(EMBED_MODEL_NAME)
 
-_EMBED_MODEL = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+_policy_docs: List[Dict[str, Any]] = []
+for path in sorted(DATA_DIR.glob("*.txt")):
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        text = ""
+    _policy_docs.append(
+        {
+            "filename": path.name,
+            "text": text,
+        }
+    )
 
-DOCS = []          
-EMB_MATRIX = None  
-
-
-def build_policy_index():
-    global DOCS, EMB_MATRIX
-
-    docs = []
-    for fname in ["refund_policy.txt", "shipping_policy.txt",
-                  "cancellation_policy.txt", "support_faq.txt"]:
-        path = DATA_DIR / fname
-        if path.exists():
-            text = path.read_text(encoding="utf-8").strip()
-            if text:
-                docs.append({"filename": fname, "text": text})
-
-    if not docs:
-        DOCS = []
-        EMB_MATRIX = None
-        return
-
-    texts = [d["text"] for d in docs]
-    emb = _EMBED_MODEL.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
-
-    DOCS = docs
-    EMB_MATRIX = emb
+if _policy_docs:
+    policy_texts = [p["text"] or "" for p in _policy_docs]
+    _policy_embeddings = _embedder.encode(policy_texts, show_progress_bar=False)
+    _policy_embeddings = np.array(_policy_embeddings, dtype="float32")
+else:
+    _policy_embeddings = np.zeros((0, 384), dtype="float32")  # safe default
 
 
-build_policy_index()  
+def _embed_query(text: str) -> np.ndarray:
+    vec = _embedder.encode([text], show_progress_bar=False)[0]
+    return np.array(vec, dtype="float32")
 
 
-def _embed(text: str) -> np.ndarray:
-    return _EMBED_MODEL.encode([text], convert_to_numpy=True, normalize_embeddings=True)[0]
-
-
-def retrieve_policy_snippets(query: str, top_k: int = 2):
-    if not DOCS or EMB_MATRIX is None:
+def retrieve_policy_snippets(query: str, top_k: int = 2) -> List[Dict[str, Any]]:
+    """
+    Simple cosine similarity over policy docs.
+    Returns top_k docs with highest similarity.
+    """
+    if _policy_embeddings.shape[0] == 0:
         return []
 
-    q_emb = _embed(query)
-    scores = (EMB_MATRIX @ q_emb)  
-    idx = np.argsort(scores)[::-1][:top_k]
+    q = _embed_query(query)  # (d,)
+    docs_mat = _policy_embeddings  # (N, d)
 
-    results = []
-    for i in idx:
+    # cosine similarity
+    q_norm = np.linalg.norm(q) + 1e-8
+    docs_norm = np.linalg.norm(docs_mat, axis=1) + 1e-8
+    sims = (docs_mat @ q) / (docs_norm * q_norm)
+
+    top_idx = np.argsort(-sims)[:top_k]
+    results: List[Dict[str, Any]] = []
+    for idx in top_idx:
+        d = _policy_docs[int(idx)]
         results.append(
             {
-                "filename": DOCS[i]["filename"],
-                "text": DOCS[i]["text"],
-                "score": float(scores[i]),
+                "filename": d["filename"],
+                "text": d["text"],
+                "score": float(sims[idx]),
             }
         )
     return results
 
 
-def answer_with_rag(user_message: str) -> dict:
+def get_memory_context(user_message: str, top_k: int = 5) -> str:
     """
-    Returns {"answer": str, "context": str}
+    Query Chroma for semantically relevant conversation memory.
+    Returns a formatted text block.
     """
-    snippets = retrieve_policy_snippets(user_message, top_k=2)
+    hits = search_memory(user_message, top_k=top_k)
+    if not hits:
+        return ""
 
-    context_text = ""
-    if snippets:
+    snippets = []
+    for h in hits:
+        doc = h["document"]
+        meta = h.get("metadata", {})
+        ticket_id = meta.get("ticket_id")
+        order_id = meta.get("order_id")
+        label_parts = []
+        if ticket_id:
+            label_parts.append(f"ticket={ticket_id}")
+        if order_id:
+            label_parts.append(f"order={order_id}")
+        label = " ".join(label_parts)
+        if label:
+            snippets.append(f"[Past memory ({label})]\n{doc}")
+        else:
+            snippets.append(f"[Past memory]\n{doc}")
+
+    return "\n\n---\n\n".join(snippets)
+
+
+def answer_with_rag(user_message: str) -> Dict[str, Any]:
+    """
+    Combine:
+    - Policy RAG
+    - Vector memory from Chroma
+    And ask the LLM to answer.
+
+    Returns:
+        {
+          "answer": str,
+          "context": str
+        }
+    """
+    # 1) Policy docs
+    policy_snippets = retrieve_policy_snippets(user_message, top_k=2)
+    policy_context = ""
+    if policy_snippets:
         joined = "\n\n---\n\n".join(
-            f"[{s['filename']}]\n{s['text']}" for s in snippets
+            f"[{s['filename']}]\n{s['text']}"
+            for s in policy_snippets
+            if s["text"].strip()
         )
-        context_text = joined
+        policy_context = joined
 
-    system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+    # 2) Conversation memory from Chroma
+    memory_context = get_memory_context(user_message, top_k=5)
 
+    # 3) Build context block
+    context_parts = []
+    if policy_context:
+        context_parts.append("Policy documents:\n" + policy_context)
+    if memory_context:
+        context_parts.append("Relevant past conversation:\n" + memory_context)
+
+    context_block = "\n\n====\n\n".join(context_parts) if context_parts else ""
+
+    # 4) System prompt
+    try:
+        system_prompt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+    except Exception:
+        system_prompt = (
+            "You are a helpful, policy-grounded customer support assistant. "
+            "If you are unsure, say you are not sure."
+        )
+
+    # 5) Messages for LLM
     messages = [
         {
             "role": "system",
             "content": (
                 system_prompt
-                + "\n\nRules:\n"
-                  "- Use ONLY the policy text provided in context when talking about policies.\n"
-                  "- Do NOT mention file names, searching or internal steps.\n"
-                  "- Answer like a human support agent in 3–6 short sentences.\n"
+                + "\n\n"
+                "You have two sources of context:\n"
+                "1) Policy documents (refund, shipping, cancellation, login).\n"
+                "2) Conversation memory (past user–assistant messages) from a vector store.\n"
+                "- Use policy docs for exact rules.\n"
+                "- Use memory for recalling past interactions and tickets.\n"
+                "- If something is not covered, say you are not sure.\n"
             ),
         },
         {
             "role": "user",
             "content": (
+                f"Context (may be empty):\n{context_block}\n\n"
                 f"Customer message:\n{user_message}\n\n"
-                f"Policy context:\n{context_text}\n\n"
-                "Based ONLY on this context, reply to the customer."
+                "Reply as a friendly, concise support agent in 3–6 short sentences."
             ),
         },
     ]
@@ -116,4 +202,7 @@ def answer_with_rag(user_message: str) -> dict:
     )
     answer = resp["choices"][0]["message"]["content"]
 
-    return {"answer": answer, "context": context_text}
+    return {
+        "answer": answer,
+        "context": context_block,
+    }

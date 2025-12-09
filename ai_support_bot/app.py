@@ -4,7 +4,8 @@ from pprint import pformat
 import gradio as gr
 from dotenv import load_dotenv
 
-from memory_utils import load_memory, save_memory, add_turn_to_memory
+from memory_utils import load_memory, save_memory  
+
 from ticket_utils import (
     create_ticket,
     load_tickets,
@@ -13,8 +14,12 @@ from ticket_utils import (
     classify_issue_type,
     extract_ticket_id,
     get_ticket_by_id,
+    find_ticket_by_order_and_issue, 
 )
+
 from rag_utils import answer_with_rag
+
+from memory_store import add_turn_to_memory as store_vector_memory 
 
 load_dotenv()
 
@@ -34,72 +39,97 @@ def fill_login():
 
 
 def handle_customer_message(user_message: str, auto_create_ticket: bool = True):
-    """
-    - If user mentions a Ticket ID -> lookup in tickets.json
-    - Else normal RAG answer + optional ticket creation from order id
-    """
 
-    ticket_id = extract_ticket_id(user_message)
-    if ticket_id:
-        existing = get_ticket_by_id(ticket_id)
-        if existing:
-            reply = (
-                f"Here are the details for your ticket **{ticket_id}**:\n\n"
-                f"- **Issue type:** {existing['issue_type']}\n"
-                f"- **Order ID:** {existing['order_id']}\n"
-                f"- **Status:** {existing['status']}\n"
-                f"- **Created at:** {existing['created_at']}\n"
-                f"- **Summary:** {existing['summary']}\n\n"
-                "If you want, I can help you follow up on this issue or update the status."
-            )
-            add_turn_to_memory(user_message, reply)
-            return {
-                "reply": reply,
-                "order_id": existing["order_id"],
-                "issue_type": existing["issue_type"],
-                "ticket": existing,
-                "context_used": None,
-            }
-        else:
-            reply = (
-                f"I couldn't find any ticket with ID **{ticket_id}** in the system. "
-                "Please double-check the ticket ID, or tell me what issue you're facing so I can open a new ticket."
-            )
-            add_turn_to_memory(user_message, reply)
-            return {
-                "reply": reply,
-                "order_id": None,
-                "issue_type": "Ticket Lookup",
-                "ticket": None,
-                "context_used": None,
-            }
+    # 1) Extract structured info FIRST
+    order_id = extract_order_id(user_message)
+    issue_type = classify_issue_type(user_message)
 
-    
+    ticket = None
+
+    # 2) RAG answer
     rag = answer_with_rag(user_message)
     base_answer = rag["answer"]
 
-    order_id = extract_order_id(user_message)
-    issue_type = classify_issue_type(user_message)
-    ticket = None
-    extra_msg = ""
+    # If no order ID → DO NOT create tickets
+    if not order_id:
+        final_reply = (
+            base_answer
+            + "\n\nℹ️ I could not detect an Order ID. "
+            "Please provide an order ID so I can assist you."
+        )
 
-    if auto_create_ticket and order_id:
-        summary = f"{issue_type} - {user_message[:120]}..."
-        ticket = create_ticket(order_id, issue_type, user_message, summary)
+        store_vector_memory(
+            user_message=user_message,
+            assistant_message=final_reply,
+            order_id=None,
+            ticket_id=None,
+            issue_type=issue_type,
+        )
+
+        return {
+            "reply": final_reply,
+            "order_id": None,
+            "issue_type": issue_type,
+            "ticket": None,
+            "context_used": rag["context"],
+        }
+
+    # 3) Check if an existing OPEN ticket already exists for this order
+    existing_ticket = find_ticket_by_order_and_issue(
+        order_id=str(order_id),
+        issue_type=None,  # Ignore issue type
+        only_open=True
+    )
+
+    if existing_ticket:
+        # Reuse existing ticket — NO new ticket
+        ticket = existing_ticket
         extra_msg = (
-            f"\n\n✅ I have created a support ticket for you.\n"
+            f"\n\nℹ️ I found an existing open ticket for this order.\n"
             f"Ticket ID: **{ticket['ticket_id']}**\n"
             f"Issue Type: {ticket['issue_type']}\n"
             f"Status: {ticket['status']}"
         )
-    elif not order_id:
-        extra_msg = (
-            "\n\nℹ️ I could not detect an Order ID in your message. "
-            "Share your Order ID if you want me to create a ticket."
+
+        final_reply = base_answer + extra_msg
+
+        store_vector_memory(
+            user_message=user_message,
+            assistant_message=final_reply,
+            order_id=order_id,
+            ticket_id=ticket["ticket_id"],
+            issue_type=issue_type,
         )
 
+        return {
+            "reply": final_reply,
+            "order_id": order_id,
+            "issue_type": ticket["issue_type"],
+            "ticket": ticket,
+            "context_used": rag["context"],
+        }
+
+    # 4) No existing ticket → Create NEW ticket
+    summary = f"{issue_type} - {user_message[:120]}..."
+    ticket = create_ticket(order_id, issue_type, user_message, summary)
+
+    extra_msg = (
+        f"\n\n✅ I have created a support ticket for you.\n"
+        f"Ticket ID: **{ticket['ticket_id']}**\n"
+        f"Issue Type: {ticket['issue_type']}\n"
+        f"Status: {ticket['status']}"
+    )
+
     final_reply = base_answer + extra_msg
-    add_turn_to_memory(user_message, final_reply)
+
+    # 5) Store in memory
+    store_vector_memory(
+        user_message=user_message,
+        assistant_message=final_reply,
+        order_id=order_id,
+        ticket_id=ticket["ticket_id"],
+        issue_type=issue_type,
+    )
 
     return {
         "reply": final_reply,

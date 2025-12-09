@@ -26,6 +26,39 @@ def load_tickets():
         return []
 
 
+
+def find_ticket_by_order_and_issue(
+    order_id: str,
+    issue_type: str | None = None,
+    only_open: bool = True,
+):
+    """
+    Return an existing ticket for the same order_id and (optionally) issue_type.
+
+    If issue_type is None, we ignore the type and just match on order_id.
+    If only_open=True, we only return tickets whose status is 'OPEN'.
+    """
+    tickets = load_tickets()
+    order_id = str(order_id)
+
+    for t in tickets:
+        if str(t.get("order_id")) != order_id:
+            continue
+
+        # If issue_type is provided, enforce matching
+        if issue_type is not None and t.get("issue_type") != issue_type:
+            continue
+
+        if only_open:
+            status = (t.get("status") or "").upper()
+            if status != "OPEN":
+                continue
+
+        return t  # first match
+
+    return None
+
+
 def save_tickets(tickets):
     TICKETS_PATH.write_text(json.dumps(tickets, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -46,7 +79,7 @@ def create_ticket(order_id: str, issue_type: str, user_message: str, summary: st
     return ticket
 
 
-# ---- helpers ----
+
 
 def extract_order_id(text: str):
     """
@@ -56,16 +89,21 @@ def extract_order_id(text: str):
     return match.group(0) if match else None
 
 
-def classify_issue_type(text: str) -> str:
-    t = text.lower()
-    if any(k in t for k in ["refund", "money back", "return"]):
+def classify_issue_type(message: str) -> str:
+    msg = message.lower()
+
+    if any(w in msg for w in ["refund", "money", "return", "credited", "payment back"]):
         return "Refund Issue"
-    if any(k in t for k in ["cancel", "cancellation"]):
+
+    if any(w in msg for w in ["cancel", "cancellation", "stop order"]):
         return "Cancellation Issue"
-    if any(k in t for k in ["delivered but", "not received", "missing", "lost package"]):
+
+    if any(w in msg for w in ["delivered", "not received", "missing", "lost", "package"]):
         return "Delivery Issue"
-    if any(k in t for k in ["login", "password", "sign in", "account access"]):
+
+    if any(w in msg for w in ["login", "password", "account", "otp"]):
         return "Login Issue"
+
     return "General Support"
 
 
