@@ -1,4 +1,11 @@
 ipykernel
+gradio
+langchain
+langchain-huggingface
+langchain-groq
+chromadb
+duckdb
+pandas
 jupyter
 pandas
 langchain
