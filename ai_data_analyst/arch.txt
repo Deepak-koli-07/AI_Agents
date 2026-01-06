@@ -1,0 +1,128 @@
+                                           ┌───────────────────────────────┐
+                                           │         CLIENT CHANNELS       │
+                                           │ - Gradio Web UI               │
+                                           │ - Internal Analyst Tools      │
+                                           │ - Future: Slack / API Clients │
+                                           └───────────────┬──────────────┘
+                                                           │
+                                                     (User Request)
+                                                           │
+                                                           ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                     EXPERIENCE / INTERFACE LAYER (GRADIO UI)                              │
+│  - Chatbot UI                                                                              │
+│  - Textbox for questions                                                                   │
+│  - Sidebar: Data Source, Table, Filters                                                    │
+│  - Hidden State (conversation, last SQL, options)                                          │
+└───────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                │
+                         (UI → Backend Call)
+                                │
+                                ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                 ORCHESTRATION & CONTROL LAYER (AGENT RUNTIME)                             │
+│  - handle_message()                                                                        │
+│  - Maintains conversation state                                                            │
+│  - Decides: LLM call vs Tool call                                                          │
+│  - ReAct / Planner logic                                                                   │
+│  - Guardrails applied here                                                                 │
+│  - Error handling & fallback                                                               │
+└───────────────┬───────────────────────────────────────┬────────────────────────────────────┘
+                │                                       │
+                │ (Tool Call)                           │ (LLM Call)
+                ▼                                       ▼
+┌───────────────────────────────────────────────┐     ┌──────────────────────────────────────────┐
+│              TOOLS / ACTION LAYER             │     │             LLM SERVICE LAYER            │
+│  - run_sql_safe()                             │     │  - LLM Client (Groq / OpenAI / etc.)    │
+│  - pandas_ops()                                │     │  - System prompts                      │
+│  - plot_tools()                                │     │  - Tool calling / JSON validation      │
+│  - rag_search()                                │     │  - Retries, timeouts, fallback         │
+│  - get_metric_definition()                      │     └──────────────────────────────────────────┘
+└───────────────────────────────┬────────────────┘
+                                │
+                                │ (Data / Metadata Access)
+                                ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                       DATA & KNOWLEDGE LAYER                                              │
+│  - BigQuery / Snowflake / Redshift (read-only)                                             │
+│  - DuckDB / Postgres replicas                                                              │
+│  - CSV / Parquet datasets                                                                  │
+│  - Metric Dictionary (CTR, CVR, LTV)                                                       │
+│  - Schema Docs                                                                             │
+│  - Vector Store (RAG embeddings)                                                           │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+───────────────────────────────────────────────────────────────────────────────────────────────
+   CROSS-CUTTING ENTERPRISE LAYERS (APPLY TO ALL BOXES ABOVE)
+───────────────────────────────────────────────────────────────────────────────────────────────
+
+                               ▲                     ▲                     ▲
+                               │                     │                     │
+                               │                     │                     │
+┌──────────────────────────────┴─────────────────────┴─────────────────────┴──────────────────────┐
+│                                  SAFETY & GUARDRAILS                                           │
+│  - SQL safety (read-only, block DROP/UPDATE, auto-LIMIT)                                       │
+│  - Step limits (max tool calls)                                                                │
+│  - Timeouts                                                                                     │
+│  - No invented numbers                                                                          │
+│  - PII masking                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+                               ▲                     ▲                     ▲
+                               │                     │                     │
+                               │                     │                     │
+
+┌──────────────────────────────┴─────────────────────┴─────────────────────┴──────────────────────┐
+│                               OBSERVABILITY & MONITORING                                        │
+│  - Logs: LLM calls, tool calls, SQL, errors                                                     │
+│  - Metrics: latency, cost, token usage, error rates                                             │
+│  - Alerts: expensive SQL, high failure rate                                                     │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+                               ▲                     ▲                     ▲
+                               │                     │                     │
+                               │                     │                     │
+
+┌──────────────────────────────┴──────────────────────┴────────────────────┴──────────────────────┐
+│                           CONFIGURATION & SECRETS MANAGEMENT                                   │
+│  - Env configs (dev/staging/prod)                                                              │
+│  - API keys, DB credentials                                                                    │
+│  - Feature flags                                                                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+---------------------------------------------------------------------------
+simple
+┌────────────────────────┐
+│ User Question          │
+└───────────┬────────────┘
+            │
+            ▼
+┌──────────────────────────────┐
+│ 🧠 LLM: generate_sql_from_    │
+│           question(question) │
+│ (LLM converts English → SQL) │
+└───────────┬──────────────────┘
+            │ (SQL text)
+            ▼
+┌──────────────────────────────────────┐
+│ 🔧 TOOL: run_sql_safe(sql)          │
+│   - SQL guardrails (block DELETE)   │
+│   - Auto LIMIT                      │
+│   - Executes SQL on DuckDB          │
+│   - Returns DataFrame (df)          │
+└───────────┬──────────────────────────┘
+            │ (df)
+            ▼
+┌──────────────────────────────────────┐
+│ 🧠 LLM: explain_result(question,     │
+│               sql, df)              │
+│ (LLM reads preview + explains)      │
+└───────────┬──────────────────────────┘
+            │ (text summary)
+            ▼
+┌────────────────────────┐
+│ Final Answer to User   │
+└────────────────────────┘
