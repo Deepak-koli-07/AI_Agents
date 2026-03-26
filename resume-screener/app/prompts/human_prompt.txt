@@ -1,0 +1,7 @@
+Job Description:
+{job_description}
+
+Candidate Resume:
+{resume_text}
+
+Evaluate this candidate's resume against the job description and return the JSON result.

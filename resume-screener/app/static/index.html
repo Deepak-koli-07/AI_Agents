@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Resume Screener</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1a2e, #16213e);
+      color: white;
+      padding: 20px 40px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    header h1 { font-size: 22px; font-weight: 600; }
+    header span { font-size: 13px; color: #a0aec0; margin-left: auto; }
+
+    .container {
+      max-width: 1100px;
+      margin: 36px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 768px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 28px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+
+    .card h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #4a5568;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 20px;
+    }
+
+    /* Drop zone */
+    .dropzone {
+      border: 2px dashed #cbd5e0;
+      border-radius: 10px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    .dropzone:hover, .dropzone.dragover { border-color: #4361ee; background: #ebf4ff; }
+    .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .dropzone .icon { font-size: 36px; margin-bottom: 8px; }
+    .dropzone p { font-size: 14px; color: #718096; }
+    .dropzone .filename { font-size: 13px; color: #4361ee; font-weight: 600; margin-top: 6px; }
+
+    textarea {
+      width: 100%;
+      height: 180px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+      resize: vertical;
+      font-family: inherit;
+      color: #2d3748;
+      outline: none;
+      transition: border 0.2s;
+    }
+    textarea:focus { border-color: #4361ee; }
+    textarea::placeholder { color: #a0aec0; }
+
+    label { font-size: 13px; font-weight: 600; color: #4a5568; display: block; margin-bottom: 8px; }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #4361ee, #3a0ca3);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 20px;
+      transition: opacity 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Spinner */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Results */
+    .results { display: none; }
+
+    .score-block {
+      text-align: center;
+      padding: 24px 0;
+      border-bottom: 1px solid #edf2f7;
+      margin-bottom: 24px;
+    }
+    .score-number {
+      font-size: 72px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .score-label { font-size: 13px; color: #718096; margin-top: 6px; }
+    .score-bar {
+      height: 8px;
+      background: #edf2f7;
+      border-radius: 99px;
+      margin-top: 14px;
+      overflow: hidden;
+    }
+    .score-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 1s ease;
+    }
+
+    .section-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #718096;
+      margin-bottom: 10px;
+    }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .tag {
+      padding: 4px 12px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .tag.match { background: #c6f6d5; color: #276749; }
+    .tag.gap   { background: #fed7d7; color: #9b2c2c; }
+
+    .summary-text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: #4a5568;
+      background: #f7fafc;
+      border-left: 3px solid #4361ee;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .error-box {
+      background: #fff5f5;
+      border: 1px solid #fed7d7;
+      color: #c53030;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+      margin-top: 16px;
+    }
+
+    .placeholder-msg {
+      text-align: center;
+      color: #a0aec0;
+      padding: 60px 20px;
+      font-size: 14px;
+    }
+    .placeholder-msg .big { font-size: 48px; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>&#128203; Resume Screener</h1>
+  </div>
+  <span>Powered by Groq &amp; LangChain</span>
+</header>
+
+<div class="container">
+
+  <!-- LEFT: Input -->
+  <div class="card">
+    <h2>Input</h2>
+
+    <label>Resume (PDF)</label>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="pdfFile" accept=".pdf"/>
+      <div class="icon">&#128196;</div>
+      <p>Drag &amp; drop or <strong>click to upload</strong></p>
+      <div class="filename" id="filename"></div>
+    </div>
+
+    <label for="jd">Job Description</label>
+    <textarea id="jd" placeholder="Paste the job description here..."></textarea>
+
+    <button class="btn" id="analyzeBtn" onclick="analyze()">
+      <div class="spinner" id="spinner"></div>
+      <span id="btnText">Analyze Resume</span>
+    </button>
+
+    <div class="error-box" id="errorBox"></div>
+  </div>
+
+  <!-- RIGHT: Results -->
+  <div class="card">
+    <h2>Results</h2>
+
+    <div id="placeholder" class="placeholder-msg">
+      <div class="big">&#128269;</div>
+      Upload a resume and paste a job description to see the analysis.
+    </div>
+
+    <div class="results" id="results">
+
+      <div class="score-block">
+        <div class="score-number" id="scoreNum">--</div>
+        <div class="score-label">Match Score out of 100</div>
+        <div class="score-bar"><div class="score-fill" id="scoreFill"></div></div>
+      </div>
+
+      <div class="section-title">&#9989; Matched Skills</div>
+      <div class="tags" id="matchedTags"></div>
+
+      <div class="section-title">&#10060; Gaps</div>
+      <div class="tags" id="gapTags"></div>
+
+      <div class="section-title">&#128221; Summary</div>
+      <div class="summary-text" id="summaryText"></div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('pdfFile');
+  const filenameLabel = document.getElementById('filename');
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) filenameLabel.textContent = fileInput.files[0].name;
+  });
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) {
+      fileInput.files = e.dataTransfer.files;
+      filenameLabel.textContent = e.dataTransfer.files[0].name;
+    }
+  });
+
+  function scoreColor(s) {
+    if (s >= 70) return '#38a169';
+    if (s >= 40) return '#dd6b20';
+    return '#e53e3e';
+  }
+
+  async function analyze() {
+    const file = fileInput.files[0];
+    const jd   = document.getElementById('jd').value.trim();
+    const errorBox = document.getElementById('errorBox');
+
+    errorBox.style.display = 'none';
+
+    if (!file) { showError('Please upload a PDF resume.'); return; }
+    if (!jd)   { showError('Please enter a job description.'); return; }
+
+    setLoading(true);
+
+    const form = new FormData();
+    form.append('resume_file', file);
+    form.append('job_description', jd);
+
+    try {
+      const res = await fetch('/screen-pdf', { method: 'POST', body: form });
+      const data = await res.json();
+
+      if (!res.ok) { showError(data.detail || 'Something went wrong.'); return; }
+
+      renderResults(data);
+    } catch (e) {
+      showError('Could not reach the server. Is it running?');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function renderResults(data) {
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('results').style.display = 'block';
+
+    const score = data.match_score;
+    const color = scoreColor(score);
+
+    document.getElementById('scoreNum').textContent = score;
+    document.getElementById('scoreNum').style.color = color;
+
+    const fill = document.getElementById('scoreFill');
+    fill.style.width = '0%';
+    fill.style.background = color;
+    setTimeout(() => fill.style.width = score + '%', 50);
+
+    document.getElementById('matchedTags').innerHTML =
+      data.matched_skills.map(s => `<span class="tag match">${s}</span>`).join('');
+
+    document.getElementById('gapTags').innerHTML =
+      data.gaps.map(s => `<span class="tag gap">${s}</span>`).join('');
+
+    document.getElementById('summaryText').textContent = data.summary;
+  }
+
+  function showError(msg) {
+    const box = document.getElementById('errorBox');
+    box.textContent = msg;
+    box.style.display = 'block';
+  }
+
+  function setLoading(on) {
+    document.getElementById('spinner').style.display = on ? 'block' : 'none';
+    document.getElementById('btnText').textContent = on ? 'Analyzing...' : 'Analyze Resume';
+    document.getElementById('analyzeBtn').disabled = on;
+  }
+</script>
+
+</body>
+</html>
