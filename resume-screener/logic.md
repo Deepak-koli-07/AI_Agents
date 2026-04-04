@@ -58,46 +58,51 @@ JSON response to browser
 
 ## Prompt Design
 
-### system_prompt.txt — What the LLM is told to be
+### system_prompt.txt — Scoring rubric given to the LLM
 
-```
-You are an expert technical recruiter and resume screener.
-You will be given a resume and a job description.
-Your job is to analyze how well the candidate matches the role.
+The system prompt defines the LLM's role and a **structured 100-point rubric**:
 
-You MUST respond with valid JSON only. No explanation, no markdown, no extra text.
-Just raw JSON in exactly this format:
+| Dimension | Points | What it evaluates |
+|---|---|---|
+| Core Technical Skills | 40 | Required tools, languages, frameworks — exact + synonym matches |
+| Experience & Seniority | 25 | Years of experience, seniority level, production vs side-project weight |
+| Domain & Industry | 20 | Same or adjacent domain (e.g. fintech, MLOps, NLP) |
+| Education & Certifications | 10 | Degree requirements, relevant certifications |
+| Soft Skills | 5 | Communication, leadership, collaboration overlap |
 
-{
-    "match_score": <integer between 0 and 100>,
-    "matched_skills": [...],
-    "gaps": [...],
-    "summary": "<2-3 sentence summary>"
-}
-```
+**Score range definitions** are explicitly stated so the LLM anchors consistently:
+- 90–100: near-perfect, strongly recommend
+- 70–89: strong fit, worth interviewing
+- 50–69: partial fit, notable gaps
+- 30–49: weak fit, several required skills missing
+- 0–29: poor fit, wrong domain or missing critical skills
 
-**Key decisions:**
-- Role is set as *technical recruiter* — this biases the LLM toward understanding domain skills, not just word overlap.
-- "MUST respond with valid JSON only" is explicit — reduces hallucinated prose before/after the JSON.
+**Synonym rules** prevent false negatives:
+- "ML" = "machine learning" = "ML models"
+- "GenAI" = "LLMs" = "large language models"
+- "MLOps" = "ML engineering" = "model deployment"
+- etc.
+
+**Inference rules** from projects — e.g. if resume shows a RAG system → infer LangChain + vector DB experience even if not explicitly listed.
+
+**Filler word exclusion** — words like "experience", "knowledge", "proficiency" are explicitly excluded from skill matching.
+
+**Key technical decisions:**
 - `temperature=0.1` — low randomness for consistent, structured output.
-- Curly braces in the JSON example are escaped as `{{` / `}}` — LangChain's `ChatPromptTemplate` uses `{variable}` syntax, so literal braces must be doubled to avoid being treated as template variables.
+- Curly braces in the JSON example are escaped as `{{` / `}}` — LangChain's `ChatPromptTemplate` uses `{variable}` syntax, so literal braces must be doubled.
 
 ### human_prompt.txt — What the LLM receives per request
 
-```
-RESUME:
-{resume_text}
+The human prompt puts the **JD first, resume second** — the LLM extracts requirements before reading the candidate's background. It then instructs the LLM to:
 
-JOB DESCRIPTION:
-{job_description}
+1. Extract required vs preferred skills from the JD
+2. Score each rubric dimension
+3. Sum into final match_score
+4. List only confirmed matched skills (no guessing)
+5. List only genuinely missing required skills as gaps
+6. Write a 3–4 sentence summary with a hiring recommendation
 
-Analyze the match and respond with JSON only.
-```
-
-**Key decisions:**
-- Resume comes first — the LLM reads it as context before evaluating against the JD.
-- `{resume_text}` and `{job_description}` are LangChain template variables — filled at runtime by `chain.invoke(...)`.
-- Ends with a re-instruction ("respond with JSON only") — reinforces the system prompt constraint.
+`{resume_text}` and `{job_description}` are LangChain template variables filled at runtime by `chain.invoke(...)`.
 
 ---
 

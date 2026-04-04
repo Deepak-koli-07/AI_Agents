@@ -1,7 +1,17 @@
-RESUME:
-{resume_text}
-
 JOB DESCRIPTION:
 {job_description}
 
-Analyze the match and respond with JSON only.
+CANDIDATE RESUME:
+{resume_text}
+
+---
+
+Follow these steps in your head before responding:
+1. Extract required and preferred skills from the job description above.
+2. Score each rubric dimension: Core Skills (40), Experience (25), Domain (20), Education (10), Soft Skills (5).
+3. Sum the dimension scores into match_score.
+4. List only confirmed matched skills — do not guess or infer without evidence.
+5. List only required skills that are genuinely missing from the resume as gaps.
+6. Write a 3–4 sentence summary with a clear hiring recommendation.
+
+Respond with JSON only. No explanation outside the JSON.
