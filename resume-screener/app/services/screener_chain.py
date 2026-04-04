@@ -4,13 +4,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 import logfire
 from langchain_groq import ChatGroq
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
-
-
-
 
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
@@ -30,7 +27,6 @@ def build_screener_chain():
     groq_api_key = os.getenv("GROQ_API_KEY"),
     temperature = 0.1
     )
-
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
